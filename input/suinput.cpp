@@ -28,11 +28,12 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301  USA
 #include "log.h"
 #include "suinput.h"
 
-char* UINPUT_FILEPATHS[] = {
+const char* UINPUT_FILEPATHS[] = {
     "/dev/uinput",
     "/dev/input/uinput",
     "/dev/misc/uinput",
 };
+
 #define UINPUT_FILEPATHS_COUNT (sizeof(UINPUT_FILEPATHS) / sizeof(char*))
 
 int suinput_open(const char* device_name, const struct input_id* id, int width, int height)

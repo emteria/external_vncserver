@@ -31,6 +31,8 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301  USA
 #include <time.h>
 #include <unistd.h>
 
+#include <cutils/properties.h>
+
 #include <sys/mman.h>
 #include <sys/ioctl.h>
 #include <sys/stat.h>

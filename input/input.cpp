@@ -298,7 +298,7 @@ void keyEvent(rfbBool down, rfbKeySym key, rfbClientPtr cl)
 	if (inputfd == -1)
 		return;
 
-	if (code = keysym2scancode(down, key, &shift, &alt))
+	if ((code = keysym2scancode(down, key, &shift, &alt)))
 	{
 		if (key && down)
 		{
