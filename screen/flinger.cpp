@@ -16,6 +16,7 @@
      License along with this library; if not, write to the Free Software
      Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301  USA
 */
+#include <cutils/properties.h>
 
 #include <binder/IPCThreadState.h>
 #include <binder/IMemory.h>
@@ -23,6 +24,8 @@
 #include <binder/ProcessState.h>
 #include <gui/ISurfaceComposer.h>
 #include <gui/SurfaceComposerClient.h>
+#include <ui/DisplayConfig.h>
+#include <ui/DisplayState.h>
 
 #include "common.h"
 #include "log.h"
@@ -30,15 +33,20 @@
 #include "flinger.h"
 
 using namespace android;
+using android::status_t;
 
-static uint32_t DEFAULT_DISPLAY_ID = ISurfaceComposer::eDisplayIdMain;
+namespace ui = android::ui;
+
 static const int COMPONENT_YUV = 0xFF;
 
 extern screenFormat screenformat;
-int32_t displayId = DEFAULT_DISPLAY_ID;
 size_t Bpp = 32;
-sp<IBinder> display = SurfaceComposerClient::getBuiltInDisplay(displayId);
-ScreenshotClient *screenshotClient = NULL;
+sp<IBinder> display;
+sp<GraphicBuffer> outBuffer;
+static void *new_base = NULL;
+std::optional<PhysicalDisplayId> displayId;
+ui::Dataspace dataspace;
+status_t err;
 
 struct PixelFormatInformation {
     enum {
@@ -131,6 +139,14 @@ static const Info* gGetPixelFormatTable(size_t* numEntries) {
 status_t getPixelFormatInformation(PixelFormat format, PixelFormatInformation* info)
 {
     L("Retrieving pixel information with format %d\n", format);
+
+    // Test if we use fkms to adjust color space
+    char value[PROPERTY_VALUE_MAX];
+    property_get("persist.rpi.vc4.state", value, NULL);
+    if(value[0] == '1') {
+       L("Change format to %d because of fkms\n", format);
+       format = HAL_PIXEL_FORMAT_BGRA_8888;
+    }
 
     if (format <= 0)
         return BAD_VALUE;
@@ -229,17 +245,16 @@ status_t getPixelFormatInformation(PixelFormat format, PixelFormatInformation* i
 screenFormat getScreenFormat()
 {
     // get format on PixelFormat struct
-    PixelFormat f = screenshotClient->getFormat();
     PixelFormatInformation pf;
-    getPixelFormatInformation(f, &pf);
+    getPixelFormatInformation(outBuffer->getPixelFormat(), &pf);
 
-    Bpp = bytesPerPixel(f);
-    L("Bpp was set to %d\n", Bpp);
+    Bpp = pf.bytesPerPixel;
+    L("Bpp was set to %zu\n", Bpp);
 
     screenFormat format;
-    format.bitsPerPixel = bitsPerPixel(f);
-    format.width        = screenshotClient->getWidth();
-    format.height       = screenshotClient->getHeight();
+    format.bitsPerPixel = pf.bitsPerPixel;
+    format.width        = outBuffer->getWidth();
+    format.height       = outBuffer->getHeight();
     format.size         = format.bitsPerPixel * format.width * format.height / CHAR_BIT;
     format.redShift     = pf.l_red;
     format.redMax       = pf.h_red - pf.l_red;
@@ -255,22 +270,40 @@ screenFormat getScreenFormat()
 
 unsigned int* receiveFrameBuffer()
 {
-    screenshotClient->update(display, Rect(), false);
-    void const* base = screenshotClient->getPixels();
+    ScreenshotClient::capture(*displayId, &dataspace, &outBuffer);
+    void* base = 0;
+    outBuffer->lock(GraphicBuffer::USAGE_SW_READ_OFTEN, &base);
+    outBuffer->unlock();
     return (unsigned int*)base;
 }
 
 int initFlinger(void)
 {
+    uint32_t width, height, stride;
     L("Preparing thread pool for screen capturing\n");
     ProcessState::self()->startThreadPool();
 
-    screenshotClient = new ScreenshotClient();
-    L("Detected screen format: %d\n", screenshotClient->getFormat());
+    //get display
+    displayId = SurfaceComposerClient::getInternalDisplayId();
+    if (!displayId) {
+        L("Failed to get token for internal display");
+        return -1;
+    }
 
-    int errcode = screenshotClient->update(display, Rect(), false);
-    if (display == NULL || errcode != NO_ERROR)
-    {
+    static PhysicalDisplayId gPhysicalDisplayId = *displayId;
+    display = SurfaceComposerClient::getPhysicalDisplayToken(gPhysicalDisplayId);
+    if(display == NULL) {
+        L("Didn't get display with id: %lu", *displayId);
+        return -1;
+    }
+
+    status_t errcode = ScreenshotClient::capture(*displayId, &dataspace, &outBuffer);
+    if(outBuffer == nullptr) {
+        L("Didn't get Buffer for display: %lu (error: %d)", *displayId, errcode);
+        return -1;
+    }
+
+    if (display == NULL || errcode != NO_ERROR) {
         L("Error: flinger initialization failed\n");
         return -1;
     }
@@ -287,43 +320,62 @@ int initFlinger(void)
         return -1;
     }
 
+    width = outBuffer->getWidth();
+    height = outBuffer->getHeight();
+    stride = outBuffer->getStride();
+
+    // allocate additional frame buffer if the source one is not continuous
+    if (stride > width) {
+        new_base = malloc(width * height* Bpp);
+        if(new_base == NULL) {
+            closeFlinger();
+            return -1;
+        }
+    }
+
     L("Initialization successful\n");
+    outBuffer->unlock();
     return 0;
 }
 
 unsigned int* readBuffer()
 {
-    screenshotClient->update(display, Rect(), false);
-    void const* base = 0;
+    ScreenshotClient::capture(*displayId, &dataspace, &outBuffer);
+    void* base = 0;
     uint32_t w, h, s;
 
-    base = screenshotClient->getPixels();
-    w = screenshotClient->getWidth();
-    h = screenshotClient->getHeight();
-    s = screenshotClient->getStride();
+    outBuffer->lock(GraphicBuffer::USAGE_SW_READ_OFTEN, &base);
+    w = outBuffer->getWidth();
+    h = outBuffer->getHeight();
+    s = outBuffer->getStride();
 
-    if (s > w)
-    {
+    if (s > w) {
         // If stride is greater than width, then the image is non-contiguous in memory
         // so we have copy it into a new array such that it is
-        void *new_base = malloc(w * h * Bpp);
         void *tmp_ptr = new_base;
 
-        for (size_t y = 0; y < h; y++)
-        {
+        for (size_t y = 0; y < h; y++) {
             memcpy(tmp_ptr, base, w * Bpp);
             // Pointer arithmetic on void pointers is frowned upon, apparently.
             tmp_ptr = (void *)((char *)tmp_ptr + w * Bpp);
             base = (void *)((char *)base + s * Bpp);
         }
-
+        outBuffer->unlock();
         return (unsigned int*) new_base;
     }
-
+    outBuffer->unlock();
     return (unsigned int*) base;
 }
 
 void closeFlinger()
 {
-    delete screenshotClient;
+    display = NULL;
+
+    if(outBuffer != 0) {
+        outBuffer->unlock();
+        outBuffer.clear();
+    }
+    if(new_base != NULL) {
+        free(new_base);
+    }
 }
