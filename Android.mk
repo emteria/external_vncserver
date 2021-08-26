@@ -49,6 +49,6 @@ LOCAL_SHARED_LIBRARIES := \
     libutils
 
 LOCAL_STATIC_LIBRARIES := \
-    libvncserver
+    libvncserver \
 
 include $(BUILD_EXECUTABLE)

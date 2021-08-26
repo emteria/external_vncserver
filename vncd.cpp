@@ -1,6 +1,7 @@
 /*
 droid vnc server - Android VNC server
 Copyright (C) 2009 Jose Pereira <onaips@gmail.com>
+Copyright (C) 2021 The emteria.OS project
 
 This library is free software; you can redistribute it and/or
 modify it under the terms of the GNU Lesser General Public
@@ -36,8 +37,8 @@ extern "C" {
 #define CONCAT3E(a,b,c) CONCAT3(a,b,c)
 
 //  port 5900 is bound natively in some Android devices
-int VNC_PORT = 5901;
-char* VNC_PASSWD_FILE = "/data/vnc/password.bin";
+int port = 5901;
+char* passwd = NULL;
 
 unsigned int* cmpbuf;
 unsigned int* vncbuf;
@@ -48,11 +49,12 @@ uint32_t idle = 0;
 uint32_t standby = 1;
 uint16_t rotation = 0;
 uint16_t scaling = 100;
-uint8_t display_rotate_180 = 0;
+
+const char* defaultPassFile = "/data/vnc/password.bin";
 
 // reverse connection
-char *rhost = NULL;
-int rport = 5500;
+char* rhost = NULL;
+int rport = 0;
 
 screenFormat screenformat;
 void (*update_screen)(void) = NULL;
@@ -76,7 +78,7 @@ void setIdle(int i)
 
 void closeVncServer(int signo)
 {
-    L("Cleaning up for signo %d...\n", signo);
+    L("Cleaning up (signo %d)...\n", signo);
 
     closeFlinger();
     cleanupInput();
@@ -85,11 +87,14 @@ void closeVncServer(int signo)
 
 void clientGone(rfbClientPtr cl)
 {
-    L("Client disconnected\n");
+    L("Client disconnected from %s\n", cl->host);
 }
 
 enum rfbNewClientAction clientHook(rfbClientPtr cl)
 {
+    L("Client connected from %s\n", cl->host);
+    cl->clientGoneHook = (ClientGoneHookPtr) clientGone;
+
     if (scaling != 100)
     {
         int w = vncscr->width * scaling / 100;
@@ -98,9 +103,6 @@ enum rfbNewClientAction clientHook(rfbClientPtr cl)
         L("Scaling to w=%d, h=%d\n", w, h);
         rfbScalingSetup(cl, w, h);
     }
-
-    L("Client connected: %s\n", cl->host);
-    cl->clientGoneHook = (ClientGoneHookPtr) clientGone;
 
     return RFB_CLIENT_ACCEPT;
 }
@@ -111,43 +113,40 @@ void setClipboardText(char* str, int len, struct _rfbClientRec* cl)
     setClipboard(len, str);
 }
 
-void setTextChat(struct _rfbClientRec* cl, int len, char *str)
+void setTextChat(struct _rfbClientRec* cl, int len, char* str)
 {
     L("Text chat: %s\n", str);
 }
 
-void initVncServer(int argc, char **argv)
+void initVncServer(int argc, char** argv)
 {
 	vncbuf = (unsigned int*) calloc(screenformat.width * screenformat.height, screenformat.bitsPerPixel/CHAR_BIT);
 	cmpbuf = (unsigned int*) calloc(screenformat.width * screenformat.height, screenformat.bitsPerPixel/CHAR_BIT);
 
-	if (rotation==0 || rotation==180)
-		vncscr = rfbGetScreen(&argc, argv, screenformat.width , screenformat.height, 0 /* not used */ , 3,	screenformat.bitsPerPixel/CHAR_BIT);
+	if (rotation == 0 || rotation == 180)
+		vncscr = rfbGetScreen(&argc, argv, screenformat.width, screenformat.height, 0 /* not used */, 3, screenformat.bitsPerPixel/CHAR_BIT);
 	else
-		vncscr = rfbGetScreen(&argc, argv, screenformat.height, screenformat.width, 0 /* not used */ , 3,	screenformat.bitsPerPixel/CHAR_BIT);
+		vncscr = rfbGetScreen(&argc, argv, screenformat.height, screenformat.width, 0 /* not used */, 3, screenformat.bitsPerPixel/CHAR_BIT);
 
 	assert(vncbuf != NULL);
 	assert(cmpbuf != NULL);
 	assert(vncscr != NULL);
 
-	vncscr->desktopName = "emteria.OS";
+	vncscr->desktopName = (char*) "emteria.OS";
 	vncscr->frameBuffer = (char*) vncbuf;
-	vncscr->port = VNC_PORT;
+	vncscr->port = port;
+	vncscr->ipv6port = port;
+	vncscr->authPasswdData = passwd;
 	vncscr->newClientHook = (rfbNewClientHookPtr) clientHook;
 	vncscr->kbdAddEvent = keyEvent;
 	vncscr->ptrAddEvent = ptrEvent;
 	vncscr->setXCutText = setClipboardText;
 	vncscr->setTextChat = setTextChat;
+	vncscr->permitFileTransfer = true;
 
-    if (access(VNC_PASSWD_FILE, F_OK) != -1)
-    {
-        L("Using encrypted password file\n");
-        vncscr->authPasswdData = VNC_PASSWD_FILE;
-    }
-
-//  vncscr->httpEnableProxyConnect = TRUE;
-    vncscr->httpDir = "webclients/";
-    vncscr->sslcertfile = "self.pem";
+//    vncscr->httpEnableProxyConnect = TRUE;
+//    vncscr->httpDir = "webclients/";
+//    vncscr->sslcertfile = "self.pem";
 
 	vncscr->serverFormat.redShift = screenformat.redShift;
 	vncscr->serverFormat.greenShift = screenformat.greenShift;
@@ -225,7 +224,7 @@ void extractReverseHostPort(char *str)
 	int len = strlen(str);
 	char *p;
 
-	/* copy in to host */
+	// copy in to host
 	rhost = (char *) malloc(len+1);
 	if (!rhost) {
 		L("reverse_connect: could not malloc string %d\n", len);
@@ -235,37 +234,44 @@ void extractReverseHostPort(char *str)
 	strncpy(rhost, str, len);
 	rhost[len] = '\0';
 
-	/* extract port, if any */
+	// extract port, if any
 	if ((p = strrchr(rhost, ':')) != NULL) {
 		rport = atoi(p+1);
-		if (rport < 0)
-		{
-			rport = -rport;
-		} else if (rport < 20) {
-			rport = 5500 + rport;
-		}
 		*p = '\0';
 	}
 }
 
-void printUsage(char **argv)
+// inspired by rfbReverseConnection function
+// however, we do not set the "reverse connection" flag
+// this forces authorization flow if the password was set
+bool createReverseConnection()
 {
-	L("\nvncserver [parameters]\n"
-		"-r <rotation>\t- Screen rotation (degrees) (0,90,180,270)\n"
-		"-R <host:port>\t- Host for reverse connection\n"
-		"-s <scale>\t- Scale percentage (20,30,50,100,150)\n"
-		"-h\t\t- Print this help\n"
-		"-v\t\t- Output version\n"
-		"\n");
+    int sock = rfbConnect(vncscr, rhost, rport);
+    if (sock < 0)
+        return false;
+
+    rfbClientPtr cl = rfbNewClient(vncscr, sock);
+    if (!cl)
+        return false;
+
+    return true;
 }
 
-int main(int argc, char **argv)
+void printUsage(char **argv)
 {
-    // pipe signals
-    signal(SIGINT, closeVncServer);
-    signal(SIGKILL, closeVncServer);
-    signal(SIGILL, closeVncServer);
+    L("\nvncd [parameters]\n"
+        "-r <rotation>\t- Screen rotation (degrees) (0,90,180,270)\n"
+        "-s <scale>\t- Scale percentage (20,30,50,100,150)\n"
+        "-p <file>\t- Path to custom password file\n"
+        "-P <port>\t- Custom port for the VNC server\n"
+        "-R <host:port>\t- Host and port for reverse connection\n"
+        "-h\t\t- Print this help\n"
+        "-v\t\t- Output version\n"
+        "\n");
+}
 
+void parseArguments(int argc, char **argv)
+{
     if (argc > 1)
     {
 		int i=1;
@@ -280,63 +286,110 @@ int main(int argc, char **argv)
 						printUsage(argv);
 						exit(0);
 						break;
+					case 'p':
+						i++;
+						passwd = argv[i];
+						break;
 					case 'P':
 						i++;
-						VNC_PORT = atoi(argv[i]);
+						port = atoi(argv[i]);
 						break;
 					case 'r':
 						i++;
 						r = atoi(argv[i]);
 						if (r==0 || r==90 || r==180 || r==270) { rotation = r; }
-						L("rotating to %d degrees\n", rotation);
+						L("Rotating to %d degrees\n", rotation);
 						break;
-					case 's':
-						i++;
-						r = atoi(argv[i]);
-						if (r >= 1 && r <= 150) { scaling = r; }
-						                   else { scaling = 100; }
-						L("scaling to %d\n", scaling);
-						break;
+                    case 's':
+                        i++;
+                        r = atoi(argv[i]);
+                        if (r >= 1 && r <= 150) { scaling = r; }
+                                           else { scaling = 100; }
+                        L("Scaling to %d\n", scaling);
+                        break;
 					case 'R':
 						i++;
 						extractReverseHostPort(argv[i]);
 						break;
 					case 'v':
 						i++;
-						L("emteria.OS VNC server 1.1\n");
+						L("emteria.OS VNC server v2.0\n");
 						exit(0);
 				}
 			}
 			i++;
 		}
 	}
+}
+
+int main(int argc, char **argv)
+{
+    signal(SIGINT, closeVncServer);
+    signal(SIGKILL, closeVncServer);
+    signal(SIGILL, closeVncServer);
+
+    char args[PROPERTY_VALUE_MAX];
+    memset(args, 0, PROPERTY_VALUE_MAX);
+    property_get("persist.sys.vncd.args", args, "");
+
+    if (argc > 1)
+    {
+        // parse terminal arguments
+        parseArguments(argc, argv);
+    }
+    else if (strlen(args) > 1)
+    {
+        int argsLim = 64;
+        int argsCount = 1;
+
+        char* argsVals[argsLim];
+        char* p2 = strtok(args, " ");
+        while (p2 && argsCount < argsLim-1)
+        {
+            argsVals[argsCount++] = p2;
+            p2 = strtok(0, " ");
+        }
+
+        argsVals[argsCount] = 0;
+        L("Loaded %d property arguments\n", argsCount);
+
+        // parse property arguments
+        parseArguments(argsCount, argsVals);
+    }
+
+    bool defaultPassExists = (access(defaultPassFile, F_OK) == 0);
+    bool userPassSpecified = (passwd != NULL);
+    bool userPassExists = userPassSpecified && (access(passwd, F_OK) == 0);
+    if (defaultPassExists)
+    {
+        passwd = (char*) defaultPassFile;
+        if (userPassSpecified) { L("Default password file takes precedence over user-specified password file\n"); }
+    }
+    else if (!userPassExists)
+    {
+        passwd = NULL;
+        if (userPassSpecified) { L("User-specified password file is not readable\n"); }
+    }
 
     initFlinger();
+
     L("Initializing VNC server:\n");
     L(" - width: %d\n", screenformat.width);
     L(" - height: %d\n", screenformat.height);
     L(" - bpp: %d\n", screenformat.bitsPerPixel);
     L(" - rgba: %d:%d:%d:%d\n", screenformat.redShift, screenformat.greenShift, screenformat.blueShift, screenformat.alphaShift);
     L(" - length: %d:%d:%d:%d\n", screenformat.redMax, screenformat.greenMax, screenformat.blueMax, screenformat.alphaMax);
+    L(" - password: %s\n", (passwd != NULL) ? "yes" : "no");
     L(" - scaling: %d\n", scaling);
-    L(" - port: %d\n", VNC_PORT);
+    L(" - port: %d\n", port);
 
-	initInput(screenformat.width, screenformat.height);
+    initInput(screenformat.width, screenformat.height);
     initVncServer(argc, argv);
 
-    if (rhost)
-    {
-        L("Starting in reverse host mode\n");
-        rfbClientPtr cl = rfbReverseConnection(vncscr, rhost, rport);
-        if (cl == NULL) {
-            L("Couldn't connect to remote host: %s\n",rhost);
-        } else {
-            cl->onHold = FALSE;
-            rfbStartOnHoldClient(cl);
-        }
-    }
+    bool startRemote = (rhost != NULL);
+    if (startRemote) { createReverseConnection(); }
 
-    while (TRUE)
+    while (true)
     {
         long usec = (vncscr->deferUpdateTime + standby) * 1000;
         rfbProcessEvents(vncscr, usec);
@@ -361,6 +414,6 @@ int main(int argc, char **argv)
         }
     }
 
-    L("Cleaning up...\n");
+    L("Terminating...\n");
     closeVncServer(0);
 }

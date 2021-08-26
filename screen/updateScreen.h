@@ -25,13 +25,6 @@ void FUNCTION(void)
 	idle = 0;
 	OUT_T* b = (OUT_T*) readBuffer();
 
-	int r;
-	if (display_rotate_180)
-	{
-		r = rotation;
-		rotation += 180;
-	}
-
 	/*
 	int i,j;
 	int offset=0;
@@ -174,10 +167,5 @@ void FUNCTION(void)
 	{
 		memcpy(vncbuf, b, screenformat.width * screenformat.height * screenformat.bitsPerPixel / CHAR_BIT);
 		rfbMarkRectAsModified(vncscr, 0, 0, screenformat.width, screenformat.height);
-	}
-
-	if (display_rotate_180)
-	{
-		rotation = r;
 	}
 }
