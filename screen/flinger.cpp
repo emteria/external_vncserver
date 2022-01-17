@@ -1,6 +1,7 @@
 /*
      droid vnc server - Android VNC server
      Copyright (C) 2009 Jose Pereira <onaips@gmail.com>
+     Copyright (C) 2017 emteria.OS Project
 
      This library is free software; you can redistribute it and/or
      modify it under the terms of the GNU Lesser General Public
@@ -16,37 +17,28 @@
      License along with this library; if not, write to the Free Software
      Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301  USA
 */
-#include <cutils/properties.h>
 
 #include <binder/IPCThreadState.h>
 #include <binder/IMemory.h>
 #include <binder/IServiceManager.h>
 #include <binder/ProcessState.h>
+#include <cutils/properties.h>
 #include <gui/ISurfaceComposer.h>
 #include <gui/SurfaceComposerClient.h>
-#include <ui/DisplayConfig.h>
-#include <ui/DisplayState.h>
 
 #include "common.h"
-#include "log.h"
-
 #include "flinger.h"
 
 using namespace android;
 using android::status_t;
 
-namespace ui = android::ui;
-
 static const int COMPONENT_YUV = 0xFF;
-
 extern screenFormat screenformat;
-size_t Bpp = 32;
+
 sp<IBinder> display;
 sp<GraphicBuffer> outBuffer;
-static void *new_base = NULL;
 std::optional<PhysicalDisplayId> displayId;
-ui::Dataspace dataspace;
-status_t err;
+android::ui::Dataspace dataspace;
 
 struct PixelFormatInformation {
     enum {
@@ -140,10 +132,10 @@ status_t getPixelFormatInformation(PixelFormat format, PixelFormatInformation* i
 {
     L("Retrieving pixel information with format %d\n", format);
 
-    // Test if we use fkms to adjust color space
+    // test if we use fkms to adjust color space
     char value[PROPERTY_VALUE_MAX];
     property_get("persist.rpi.vc4.state", value, NULL);
-    if(value[0] == '1') {
+    if (value[0] == '1') {
        L("Change format to %d because of fkms\n", format);
        format = HAL_PIXEL_FORMAT_BGRA_8888;
     }
@@ -192,7 +184,7 @@ status_t getPixelFormatInformation(PixelFormat format, PixelFormatInformation* i
             break;
 
         default:
-            L("unknown FORMAT!");
+            L("Unknown pixel FORMAT!\n");
             break;
     }
 
@@ -242,140 +234,101 @@ status_t getPixelFormatInformation(PixelFormat format, PixelFormatInformation* i
     return NO_ERROR;
 }
 
-screenFormat getScreenFormat()
+void initScreenFormat()
 {
-    // get format on PixelFormat struct
     PixelFormatInformation pf;
     getPixelFormatInformation(outBuffer->getPixelFormat(), &pf);
 
-    Bpp = pf.bytesPerPixel;
-    L("Bpp was set to %zu\n", Bpp);
+    size_t bpp = pf.bitsPerPixel;
+    uint32_t width = outBuffer->getWidth();
+    uint32_t height = outBuffer->getHeight();
 
-    screenFormat format;
-    format.bitsPerPixel = pf.bitsPerPixel;
-    format.width        = outBuffer->getWidth();
-    format.height       = outBuffer->getHeight();
-    format.size         = format.bitsPerPixel * format.width * format.height / CHAR_BIT;
-    format.redShift     = pf.l_red;
-    format.redMax       = pf.h_red - pf.l_red;
-    format.greenShift   = pf.l_green;
-    format.greenMax     = pf.h_green - pf.l_green;
-    format.blueShift    = pf.l_blue;
-    format.blueMax      = pf.h_blue - pf.l_blue;
-    format.alphaShift   = pf.l_alpha;
-    format.alphaMax     = pf.h_alpha-pf.l_alpha;
-
-    return format;
-}
-
-unsigned int* receiveFrameBuffer()
-{
-    ScreenshotClient::capture(*displayId, &dataspace, &outBuffer);
-    void* base = 0;
-    outBuffer->lock(GraphicBuffer::USAGE_SW_READ_OFTEN, &base);
-    outBuffer->unlock();
-    return (unsigned int*)base;
+    screenformat.bitsPerPixel = bpp;
+    screenformat.width        = width;
+    screenformat.height       = height;
+    screenformat.size         = bpp * width * height / CHAR_BIT;
+    screenformat.redShift     = pf.l_red;
+    screenformat.redMax       = pf.h_red - pf.l_red;
+    screenformat.greenShift   = pf.l_green;
+    screenformat.greenMax     = pf.h_green - pf.l_green;
+    screenformat.blueShift    = pf.l_blue;
+    screenformat.blueMax      = pf.h_blue - pf.l_blue;
+    screenformat.alphaShift   = pf.l_alpha;
+    screenformat.alphaMax     = pf.h_alpha - pf.l_alpha;
+    screenformat.rotation     = getScreenRotation();
 }
 
 int initFlinger(void)
 {
-    uint32_t width, height, stride;
     L("Preparing thread pool for screen capturing\n");
     ProcessState::self()->startThreadPool();
 
-    //get display
+    return 0;
+}
+
+int initDisplay(void)
+{
     displayId = SurfaceComposerClient::getInternalDisplayId();
     if (!displayId) {
-        L("Failed to get token for internal display");
+        L("Failed to get token for internal display\n");
         return -1;
     }
 
-    static PhysicalDisplayId gPhysicalDisplayId = *displayId;
-    display = SurfaceComposerClient::getPhysicalDisplayToken(gPhysicalDisplayId);
-    if(display == NULL) {
-        L("Didn't get display with id: %lu", *displayId);
+    display = SurfaceComposerClient::getPhysicalDisplayToken(*displayId);
+    if (display == NULL) {
+        L("Didn't get display with id: %lu\n", *displayId);
         return -1;
     }
 
-    status_t errcode = ScreenshotClient::capture(*displayId, &dataspace, &outBuffer);
-    if(outBuffer == nullptr) {
-        L("Didn't get Buffer for display: %lu (error: %d)", *displayId, errcode);
+    status_t error = ScreenshotClient::capture(*displayId, &dataspace, &outBuffer);
+    if (outBuffer == nullptr) {
+        L("Didn't get buffer for display: %lu (error: %d)\n", *displayId, error);
         return -1;
     }
 
-    if (display == NULL || errcode != NO_ERROR) {
-        L("Error: flinger initialization failed\n");
+    if (error != NO_ERROR) {
+        L("Flinger initialization failed\n");
         return -1;
     }
 
-    screenformat = getScreenFormat();
+    initScreenFormat();
     if (screenformat.width <= 0) {
-        L("Error: received a bad screen size from flinger\n");
+        L("Received a bad screen size from flinger\n");
         return -1;
     }
 
-    unsigned int* buffer = receiveFrameBuffer();
-    if (buffer == NULL) {
-        L("Error: Could not read surfaceflinger buffer\n");
-        return -1;
-    }
-
-    width = outBuffer->getWidth();
-    height = outBuffer->getHeight();
-    stride = outBuffer->getStride();
-
-    // allocate additional frame buffer if the source one is not continuous
-    if (stride > width) {
-        new_base = malloc(width * height* Bpp);
-        if(new_base == NULL) {
-            closeFlinger();
-            return -1;
-        }
-    }
-
-    L("Initialization successful\n");
+    L("Flinger initialization successful\n");
     outBuffer->unlock();
     return 0;
 }
 
-unsigned int* readBuffer()
+android::ui::Rotation getScreenRotation()
+{
+    android::ui::DisplayState displayState;
+    SurfaceComposerClient::getDisplayState(display, &displayState);
+    return displayState.orientation;
+}
+
+void readBuffer(unsigned int* buffer)
 {
     ScreenshotClient::capture(*displayId, &dataspace, &outBuffer);
+
     void* base = 0;
-    uint32_t w, h, s;
-
     outBuffer->lock(GraphicBuffer::USAGE_SW_READ_OFTEN, &base);
-    w = outBuffer->getWidth();
-    h = outBuffer->getHeight();
-    s = outBuffer->getStride();
-
-    if (s > w) {
-        // If stride is greater than width, then the image is non-contiguous in memory
-        // so we have copy it into a new array such that it is
-        void *tmp_ptr = new_base;
-
-        for (size_t y = 0; y < h; y++) {
-            memcpy(tmp_ptr, base, w * Bpp);
-            // Pointer arithmetic on void pointers is frowned upon, apparently.
-            tmp_ptr = (void *)((char *)tmp_ptr + w * Bpp);
-            base = (void *)((char *)base + s * Bpp);
-        }
-        outBuffer->unlock();
-        return (unsigned int*) new_base;
-    }
+    memcpy(buffer, base, screenformat.width * screenformat.height * screenformat.bitsPerPixel / CHAR_BIT);
     outBuffer->unlock();
-    return (unsigned int*) base;
+}
+
+void closeDisplay()
+{
+    display = NULL;
+
+    if (outBuffer != 0) {
+        outBuffer->unlock();
+        outBuffer.clear();
+    }
 }
 
 void closeFlinger()
 {
-    display = NULL;
-
-    if(outBuffer != 0) {
-        outBuffer->unlock();
-        outBuffer.clear();
-    }
-    if(new_base != NULL) {
-        free(new_base);
-    }
 }

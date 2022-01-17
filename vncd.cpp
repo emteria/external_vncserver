@@ -19,7 +19,6 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
 */
 
 #include "common.h"
-#include "log.h"
 #include "flinger.h"
 #include "clipboard.h"
 #include "input.h"
@@ -31,23 +30,15 @@ extern "C" {
     #include "rfb/keysym.h"
 }
 
-#define CONCAT2(a,b) a##b
-#define CONCAT2E(a,b) CONCAT2(a,b)
-#define CONCAT3(a,b,c) a##b##c
-#define CONCAT3E(a,b,c) CONCAT3(a,b,c)
-
 //  port 5900 is bound natively in some Android devices
 int port = 5901;
 char* passwd = NULL;
 
-unsigned int* cmpbuf;
+rfbScreenInfoPtr vncscr;
 unsigned int* vncbuf;
-
-static rfbScreenInfoPtr vncscr;
 
 uint32_t idle = 0;
 uint32_t standby = 1;
-uint16_t rotation = 0;
 uint16_t scaling = 100;
 
 const char* defaultPassFile = "/data/vnc/password.bin";
@@ -59,18 +50,6 @@ int rport = 0;
 screenFormat screenformat;
 void (*update_screen)(void) = NULL;
 
-#define OUT 8
-#include "screen/updateScreen.h"
-#undef OUT
-
-#define OUT 16
-#include "screen/updateScreen.h"
-#undef OUT
-
-#define OUT 32
-#include "screen/updateScreen.h"
-#undef OUT
-
 void setIdle(int i)
 {
     idle = i;
@@ -78,16 +57,40 @@ void setIdle(int i)
 
 void closeVncServer(int signo)
 {
-    L("Cleaning up (signo %d)...\n", signo);
+    L("Cleaning up vncd (signo %d)...\n", signo);
 
+    closeDisplay();
     closeFlinger();
     cleanupInput();
+
+    free(vncbuf);
+    rfbScreenCleanup(vncscr);
+
     exit(0);
 }
 
 void clientGone(rfbClientPtr cl)
 {
     L("Client disconnected from %s\n", cl->host);
+}
+
+void rotateScreen(android::ui::Rotation rotation)
+{
+    L("Performing screen rotation from %s to %s\n", toCString(screenformat.rotation), toCString(rotation));
+    bool oldLandscape = screenformat.rotation == android::ui::ROTATION_0 || screenformat.rotation == android::ui::ROTATION_180;
+    bool newLandscape = rotation == android::ui::ROTATION_0 || rotation == android::ui::ROTATION_180;
+    if (oldLandscape != newLandscape)
+    {
+        // we need to restart the whole vncd to re-initialize display size
+        L("Cannot handle dimention flip when rotating screen, restarting vncd service...\n");
+        property_set("ctl.restart", "vncd");
+    }
+    else
+    {
+        // only change the rotation value in the settings
+        L("Applying screen rotation without dimention flip\n");
+        screenformat.rotation = rotation;
+    }
 }
 
 enum rfbNewClientAction clientHook(rfbClientPtr cl)
@@ -97,8 +100,8 @@ enum rfbNewClientAction clientHook(rfbClientPtr cl)
 
     if (scaling != 100)
     {
-        int w = vncscr->width * scaling / 100;
-        int h = vncscr->height * scaling / 100;
+        int w = screenformat.width * scaling / 100;
+        int h = screenformat.height * scaling / 100;
 
         L("Scaling to w=%d, h=%d\n", w, h);
         rfbScalingSetup(cl, w, h);
@@ -118,19 +121,13 @@ void setTextChat(struct _rfbClientRec* cl, int len, char* str)
     L("Text chat: %s\n", str);
 }
 
-void initVncServer(int argc, char** argv)
+void initVncServer()
 {
+	vncscr = rfbGetScreen(NULL, NULL, screenformat.width, screenformat.height, 0, 3, screenformat.bitsPerPixel/CHAR_BIT);
 	vncbuf = (unsigned int*) calloc(screenformat.width * screenformat.height, screenformat.bitsPerPixel/CHAR_BIT);
-	cmpbuf = (unsigned int*) calloc(screenformat.width * screenformat.height, screenformat.bitsPerPixel/CHAR_BIT);
 
-	if (rotation == 0 || rotation == 180)
-		vncscr = rfbGetScreen(&argc, argv, screenformat.width, screenformat.height, 0 /* not used */, 3, screenformat.bitsPerPixel/CHAR_BIT);
-	else
-		vncscr = rfbGetScreen(&argc, argv, screenformat.height, screenformat.width, 0 /* not used */, 3, screenformat.bitsPerPixel/CHAR_BIT);
-
-	assert(vncbuf != NULL);
-	assert(cmpbuf != NULL);
 	assert(vncscr != NULL);
+	assert(vncbuf != NULL);
 
 	vncscr->desktopName = (char*) "emteria.OS";
 	vncscr->frameBuffer = (char*) vncbuf;
@@ -143,10 +140,6 @@ void initVncServer(int argc, char** argv)
 	vncscr->setXCutText = setClipboardText;
 	vncscr->setTextChat = setTextChat;
 	vncscr->permitFileTransfer = true;
-
-//    vncscr->httpEnableProxyConnect = TRUE;
-//    vncscr->httpDir = "webclients/";
-//    vncscr->sslcertfile = "self.pem";
 
 	vncscr->serverFormat.redShift = screenformat.redShift;
 	vncscr->serverFormat.greenShift = screenformat.greenShift;
@@ -161,62 +154,10 @@ void initVncServer(int argc, char** argv)
 
 	vncscr->alwaysShared = TRUE;
 	vncscr->handleEventsEagerly = TRUE;
-	vncscr->deferUpdateTime = 5;
+	vncscr->deferUpdateTime = 10;
 
 	rfbInitServer(vncscr);
-
-	// assign update_screen depending on bpp
-	if (vncscr->serverFormat.bitsPerPixel == 32)
-	{
-		update_screen = &CONCAT2E(update_screen_,32);
-	}
-	else if (vncscr->serverFormat.bitsPerPixel == 16)
-	{
-		update_screen = &CONCAT2E(update_screen_,16);
-	}
-	else if (vncscr->serverFormat.bitsPerPixel == 8)
-	{
-		update_screen = &CONCAT2E(update_screen_, 8);
-	}
-	else
-	{
-		L("Unsupported pixel depth: %d\n", vncscr->serverFormat.bitsPerPixel);
-		closeVncServer(-1);
-	}
-
-	/* Mark as dirty since we haven't sent any updates at all yet. */
-	rfbMarkRectAsModified(vncscr, 0, 0, vncscr->width, vncscr->height);
-}
-
-void rotate(int value)
-{
-	L("rotate()\n");
-
-	if (value == -1 ||
-		((value == 90 || value == 270) && (rotation == 0 || rotation == 180)) ||
-		((value == 0 || value == 180) && (rotation == 90 || rotation == 270))) {
-			int h = vncscr->height;
-			int w = vncscr->width;
-
-			vncscr->width = h;
-			vncscr->height = w;
-			vncscr->paddedWidthInBytes = h * screenformat.bitsPerPixel / CHAR_BIT;
-
-			rfbClientPtr cl;
-			rfbClientIteratorPtr iterator = rfbGetClientIterator(vncscr);
-			while ((cl = rfbClientIteratorNext(iterator)) != NULL) {
-				cl->newFBSizePending = 1;
-			}
-	}
-
-	if (value == -1) {
-		rotation += 90;
-	} else {
-		rotation = value;
-	}
-	rotation %= 360;
-
-	rfbMarkRectAsModified(vncscr, 0, 0, vncscr->width, vncscr->height);
+	rfbMarkRectAsModified(vncscr, 0, 0, screenformat.width, screenformat.height);
 }
 
 void extractReverseHostPort(char *str)
@@ -257,16 +198,15 @@ bool createReverseConnection()
     return true;
 }
 
-void printUsage(char **argv)
+void printUsage()
 {
     L("\nvncd [parameters]\n"
-        "-r <rotation>\t- Screen rotation (degrees) (0,90,180,270)\n"
         "-s <scale>\t- Scale percentage (20,30,50,100,150)\n"
         "-p <file>\t- Path to custom password file\n"
         "-P <port>\t- Custom port for the VNC server\n"
         "-R <host:port>\t- Host and port for reverse connection\n"
         "-h\t\t- Print this help\n"
-        "-v\t\t- Output version\n"
+        "-v\t\t- Output vncd version\n"
         "\n");
 }
 
@@ -274,52 +214,46 @@ void parseArguments(int argc, char **argv)
 {
     if (argc > 1)
     {
-		int i=1;
-		int r;
-		while (i < argc)
+        int i=1;
+        int r;
+        while (i < argc)
+        {
+            if (*argv[i] == '-')
+            {
+		switch(*(argv[i] + 1))
 		{
-			if (*argv[i] == '-')
-			{
-				switch(*(argv[i] + 1))
-				{
-					case 'h':
-						printUsage(argv);
-						exit(0);
-						break;
-					case 'p':
-						i++;
-						passwd = argv[i];
-						break;
-					case 'P':
-						i++;
-						port = atoi(argv[i]);
-						break;
-					case 'r':
-						i++;
-						r = atoi(argv[i]);
-						if (r==0 || r==90 || r==180 || r==270) { rotation = r; }
-						L("Rotating to %d degrees\n", rotation);
-						break;
-                    case 's':
-                        i++;
-                        r = atoi(argv[i]);
-                        if (r >= 1 && r <= 150) { scaling = r; }
-                                           else { scaling = 100; }
-                        L("Scaling to %d\n", scaling);
-                        break;
-					case 'R':
-						i++;
-						extractReverseHostPort(argv[i]);
-						break;
-					case 'v':
-						i++;
-						L("emteria.OS VNC server v2.0\n");
-						exit(0);
-				}
-			}
+		case 'h':
+			printUsage();
+			exit(0);
+			break;
+		case 'p':
 			i++;
+			passwd = argv[i];
+			break;
+		case 'P':
+			i++;
+			port = atoi(argv[i]);
+			break;
+		case 's':
+			i++;
+			r = atoi(argv[i]);
+			if (r >= 1 && r <= 150) { scaling = r; }
+					else { scaling = 100; }
+			L("Scaling to %d\n", scaling);
+			break;
+		case 'R':
+			i++;
+			extractReverseHostPort(argv[i]);
+			break;
+		case 'v':
+			i++;
+			L("emteria.OS VNC server v3.0\n");
+			exit(0);
 		}
-	}
+            }
+            i++;
+        }
+    }
 }
 
 int main(int argc, char **argv)
@@ -332,11 +266,13 @@ int main(int argc, char **argv)
     memset(args, 0, PROPERTY_VALUE_MAX);
     property_get("persist.sys.vncd.args", args, "");
 
+    // parse terminal arguments
     if (argc > 1)
     {
-        // parse terminal arguments
+        L("Parsing %d commandline arguments\n", argc);
         parseArguments(argc, argv);
     }
+    // parse property arguments
     else if (strlen(args) > 1)
     {
         int argsLim = 64;
@@ -344,16 +280,14 @@ int main(int argc, char **argv)
 
         char* argsVals[argsLim];
         char* p2 = strtok(args, " ");
-        while (p2 && argsCount < argsLim-1)
+        while (p2 && argsCount < argsLim - 1)
         {
             argsVals[argsCount++] = p2;
             p2 = strtok(0, " ");
         }
-
         argsVals[argsCount] = 0;
-        L("Loaded %d property arguments\n", argsCount);
 
-        // parse property arguments
+        L("Parsing %d property arguments\n", argsCount);
         parseArguments(argsCount, argsVals);
     }
 
@@ -372,8 +306,15 @@ int main(int argc, char **argv)
     }
 
     initFlinger();
+    int error = initDisplay();
+    if (error != 0)
+    {
+        L("Failed initializing VNC display\n");
+        closeVncServer(-1);
+    }
 
     L("Initializing VNC server:\n");
+    L(" - rotation: %s\n", toCString(screenformat.rotation));
     L(" - width: %d\n", screenformat.width);
     L(" - height: %d\n", screenformat.height);
     L(" - bpp: %d\n", screenformat.bitsPerPixel);
@@ -383,8 +324,8 @@ int main(int argc, char **argv)
     L(" - scaling: %d\n", scaling);
     L(" - port: %d\n", port);
 
-    initInput(screenformat.width, screenformat.height);
-    initVncServer(argc, argv);
+    initInput();
+    initVncServer();
 
     bool startRemote = (rhost != NULL);
     if (startRemote) { createReverseConnection(); }
@@ -394,23 +335,28 @@ int main(int argc, char **argv)
         long usec = (vncscr->deferUpdateTime + standby) * 1000;
         rfbProcessEvents(vncscr, usec);
 
-        if (idle) { standby += 2; }
-             else { standby = 2; }
+        if (idle) { standby += 5; }
+             else { standby = 1; }
 
         if (vncscr->clientHead == NULL)
         {
             idle = 1;
-            standby = 50;
+            standby = 10;
             continue;
         }
 
-        // update screen if at least one client has requested
+        android::ui::Rotation rotation = getScreenRotation();
+        if (screenformat.rotation != rotation) { rotateScreen(rotation); }
+
         for (rfbClientPtr client_ptr = vncscr->clientHead; client_ptr; client_ptr = client_ptr->next)
         {
-            if (sraRgnEmpty(client_ptr->requestedRegion)) { continue; }
-
-            update_screen();
-            break;
+            // update screen once if at least one client has requested
+            if (!sraRgnEmpty(client_ptr->requestedRegion))
+            {
+                readBuffer(vncbuf);
+                rfbMarkRectAsModified(vncscr, 0, 0, screenformat.width, screenformat.height);
+                break;
+            }
         }
     }
 

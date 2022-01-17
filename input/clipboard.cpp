@@ -4,8 +4,6 @@
 #include <utils/String16.h>
 
 #include "common.h"
-#include "log.h"
-
 #include "clipboard.h"
 
 using namespace android;
@@ -46,7 +44,7 @@ void setClipboard(int len, char* str)
     sp<IBinder> binder = sm->checkService(String16("clipboard"));
     if (binder == NULL)
     {
-        L("ERR: no clipboard service found\n");
+        L("No clipboard service found\n");
         return;
     }
 
@@ -59,7 +57,7 @@ void setClipboard(int len, char* str)
     status_t result = binder->transact(SET_PRIMARY_CLIP, data, &reply, IBinder::FLAG_ONEWAY);
     if (result != NO_ERROR)
     {
-        L("ERR: clipboard transaction failed\n");
+        L("Clipboard transaction failed\n");
         return;
     }
 }

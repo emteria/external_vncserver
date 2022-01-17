@@ -1,6 +1,7 @@
 /*
 droid vnc server - Android VNC server
 Copyright (C) 2009 Jose Pereira <onaips@gmail.com>
+Copyright (C) 2017 emteria.OS Project
 
 This library is free software; you can redistribute it and/or
 modify it under the terms of the GNU Lesser General Public
@@ -22,6 +23,9 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301  USA
 
 #include <stdint.h>
 
+#include <ui/DisplayConfig.h>
+#include <ui/DisplayState.h>
+
 typedef struct _screenFormat
 {
   uint16_t width;
@@ -40,12 +44,16 @@ typedef struct _screenFormat
   uint8_t alphaShift;
 
   uint32_t size;
-
   uint32_t pad;
+
+  android::ui::Rotation rotation;
 } screenFormat;
 
 int initFlinger(void);
-unsigned int* readBuffer(void);
+int initDisplay(void);
+android::ui::Rotation getScreenRotation(void);
+void readBuffer(unsigned int* buffer);
+void closeDisplay(void);
 void closeFlinger(void);
 
 #endif
