@@ -1,0 +1,7 @@
+android_app {
+    name: "rotationhelperapp",
+    srcs: ["src/**/*.java"],
+    resource_dirs: ["res"],
+    libs: ["com.rotationhelpermanager"],
+    platform_apis: true,
+}

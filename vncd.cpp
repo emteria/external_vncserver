@@ -18,6 +18,10 @@ License along with this library; if not, write to the Free Software
 Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
 */
 
+#include "com/rotationhelper/BnRotationHelper.h"
+#include <binder/IServiceManager.h>
+#include <binder/IPCThreadState.h>
+
 #include "common.h"
 #include "log.h"
 #include "flinger.h"
@@ -322,11 +326,23 @@ void parseArguments(int argc, char **argv)
 	}
 }
 
+class RotationHelper : public com::rotationhelper::BnRotationHelper {
+        ::android::binder::Status setRotation(int32_t rotation) {
+        L("Set new rotation: %d\n", rotation);
+        rotate(rotation);
+        return ::android::binder::Status::fromStatusT(::android::UNKNOWN_TRANSACTION);
+    }
+};
+
 int main(int argc, char **argv)
 {
     signal(SIGINT, closeVncServer);
     signal(SIGKILL, closeVncServer);
     signal(SIGILL, closeVncServer);
+
+    android::defaultServiceManager()->addService(android::String16("RotationHelper"), new RotationHelper());
+    android::ProcessState::self()->startThreadPool();
+    L("RotationHelper service is now ready.");
 
     char args[PROPERTY_VALUE_MAX];
     memset(args, 0, PROPERTY_VALUE_MAX);
@@ -414,6 +430,7 @@ int main(int argc, char **argv)
         }
     }
 
+    android::IPCThreadState::self()->joinThreadPool();
     L("Terminating...\n");
     closeVncServer(0);
 }
