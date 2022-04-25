@@ -33,6 +33,7 @@ extern "C" {
 //  port 5900 is bound natively in some Android devices
 int port = 5901;
 char* passwd = NULL;
+char* token = NULL;
 
 rfbScreenInfoPtr vncscr;
 unsigned int* vncbuf;
@@ -188,12 +189,22 @@ void extractReverseHostPort(char *str)
 bool createReverseConnection()
 {
     int sock = rfbConnect(vncscr, rhost, rport);
-    if (sock < 0)
+    if (sock < 0) {
         return false;
+    }
+
+    if (token) {
+        const char* header = "EMT01D";
+        write(sock, header, strlen(header));
+
+        // TODO truncate and pad the token to 64 chars
+        write(sock, token, strlen(token));
+    }
 
     rfbClientPtr cl = rfbNewClient(vncscr, sock);
-    if (!cl)
+    if (!cl) {
         return false;
+    }
 
     return true;
 }
@@ -205,6 +216,7 @@ void printUsage()
         "-p <file>\t- Path to custom password file\n"
         "-P <port>\t- Custom port for the VNC server\n"
         "-R <host:port>\t- Host and port for reverse connection\n"
+        "-t <token>\t- Session token for the reverse connection\n"
         "-h\t\t- Print this help\n"
         "-v\t\t- Output vncd version\n"
         "\n");
@@ -230,21 +242,25 @@ void parseArguments(int argc, char **argv)
 			i++;
 			passwd = argv[i];
 			break;
+		case 't':
+			i++;
+			token = argv[i];
+			break;
 		case 'P':
 			i++;
 			port = atoi(argv[i]);
 			break;
-		case 's':
-			i++;
-			r = atoi(argv[i]);
-			if (r >= 1 && r <= 150) { scaling = r; }
-					else { scaling = 100; }
-			L("Scaling to %d\n", scaling);
-			break;
-		case 'R':
-			i++;
-			extractReverseHostPort(argv[i]);
-			break;
+        case 's':
+            i++;
+            r = atoi(argv[i]);
+            if (r >= 1 && r <= 150) { scaling = r; }
+                               else { scaling = 100; }
+            L("Scaling to %d\n", scaling);
+            break;
+        case 'R':
+            i++;
+            extractReverseHostPort(argv[i]);
+            break;
 		case 'v':
 			i++;
 			L("emteria.OS VNC server v3.0\n");
@@ -321,6 +337,7 @@ int main(int argc, char **argv)
     L(" - rgba: %d:%d:%d:%d\n", screenformat.redShift, screenformat.greenShift, screenformat.blueShift, screenformat.alphaShift);
     L(" - length: %d:%d:%d:%d\n", screenformat.redMax, screenformat.greenMax, screenformat.blueMax, screenformat.alphaMax);
     L(" - password: %s\n", (passwd != NULL) ? "yes" : "no");
+    L(" - token: %s\n", (token != NULL) ? "yes" : "no");
     L(" - scaling: %d\n", scaling);
     L(" - port: %d\n", port);
 
