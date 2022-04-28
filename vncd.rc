@@ -9,3 +9,9 @@ service vncd /system/bin/vncd
     group root
     oneshot
     disabled
+
+service vncr /system/bin/vncd -P 5910 -R ${vncr.host} -t ${vncr.token}
+    user root
+    group root
+    oneshot
+    disabled
