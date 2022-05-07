@@ -46,6 +46,7 @@ unsigned int* vncbuf;
 
 static rfbScreenInfoPtr vncscr;
 
+uint32_t clients = 0;
 uint32_t idle = 0;
 uint32_t standby = 1;
 uint16_t rotation = 0;
@@ -88,13 +89,21 @@ void closeVncServer(int signo)
 
 void clientGone(rfbClientPtr cl)
 {
-    L("Client disconnected from %s\n", cl->host);
+    clients--;
+    L("Client disconnected from %s. Total clients: %d\n", cl->host, clients);
+
+    if (clients == 0 && rhost != NULL)
+    {
+        L("Stopping reverse connection after last client is gone");
+        closeVncServer(0);
+    }
 }
 
 enum rfbNewClientAction clientHook(rfbClientPtr cl)
 {
-    L("Client connected from %s\n", cl->host);
+    clients++;
     cl->clientGoneHook = (ClientGoneHookPtr) clientGone;
+    L("Client connected from %s. Total clients: %d\n", cl->host, clients);
 
     if (scaling != 100)
     {
@@ -191,7 +200,7 @@ void initVncServer(int argc, char** argv)
 
 void rotate(int value)
 {
-	L("rotate()\n");
+//	L("rotate()\n");
 
 	if (value == -1 ||
 		((value == 90 || value == 270) && (rotation == 0 || rotation == 180)) ||
@@ -228,8 +237,9 @@ void extractReverseHostPort(char *str)
 	// copy in to host
 	rhost = (char *) malloc(len+1);
 	if (!rhost) {
-		L("reverse_connect: could not malloc string %d\n", len);
-		exit(-1);
+		L("Could not malloc string of size %d for reverse host\n", len);
+		closeVncServer(-1);
+		return;
 	}
 
 	strncpy(rhost, str, len);
@@ -247,6 +257,16 @@ void extractReverseHostPort(char *str)
 // this forces authorization flow if the password was set
 bool createReverseConnection()
 {
+    char prop[PROPERTY_VALUE_MAX];
+    memset(prop, 0, PROPERTY_VALUE_MAX);
+    property_get("persist.sys.vncr.enabled", prop, "");
+    if (strncmp(prop, "1", 1) != 0)
+    {
+        L("Reverse VNC connections are not allowed\n");
+        closeVncServer(-1);
+        return false;
+    }
+
     int sock = rfbConnect(vncscr, rhost, rport);
     if (sock < 0) {
         return false;
@@ -286,14 +306,14 @@ void parseArguments(int argc, char **argv)
 {
     if (argc > 1)
     {
-		int i=1;
-		int r;
-		while (i < argc)
-		{
-			if (*argv[i] == '-')
-			{
-				switch(*(argv[i] + 1))
-				{
+        int i = 1;
+        int r;
+        while (i < argc)
+        {
+            if (*argv[i] == '-')
+            {
+                switch(*(argv[i] + 1))
+                {
 					case 'h':
 						printUsage(argv);
 						exit(0);
@@ -316,26 +336,26 @@ void parseArguments(int argc, char **argv)
 						if (r==0 || r==90 || r==180 || r==270) { rotation = r; }
 						L("Rotating to %d degrees\n", rotation);
 						break;
-                    case 's':
-                        i++;
-                        r = atoi(argv[i]);
-                        if (r >= 1 && r <= 150) { scaling = r; }
-                                           else { scaling = 100; }
-                        L("Scaling to %d\n", scaling);
-                        break;
-                    case 'R':
-                        i++;
-                        extractReverseHostPort(argv[i]);
-                        break;
-					case 'v':
-						i++;
-						L("emteria.OS VNC server v2.0\n");
-						exit(0);
-				}
-			}
-			i++;
-		}
-	}
+                case 's':
+                    i++;
+                    r = atoi(argv[i]);
+                    if (r >= 1 && r <= 150) { scaling = r; }
+                                       else { scaling = 100; }
+                    L("Scaling to %d\n", scaling);
+                    break;
+                case 'R':
+                    i++;
+                    extractReverseHostPort(argv[i]);
+                    break;
+                case 'v':
+                    i++;
+                    L("emteria.OS VNC server v2.0\n");
+                    exit(0);
+                }
+            }
+            i++;
+        }
+    }
 }
 
 int main(int argc, char **argv)
