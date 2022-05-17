@@ -327,7 +327,7 @@ bool readBuffer(unsigned int* buffer)
     memcpy(buffer, base, size);
     outBuffer->unlock();
 
-    if (memcmp(buffer, cmpBuffer, size) == 0)
+    if (memcmp(cmpBuffer, buffer, size) == 0)
     {
         // no UI changes detected
         return false;
@@ -335,7 +335,7 @@ bool readBuffer(unsigned int* buffer)
     else
     {
         // save UI changes for next iteration
-        memcpy(cmpBuffer, buffer, 0);
+        memcpy(cmpBuffer, buffer, size);
         return true;
     }
 }
@@ -344,9 +344,17 @@ void closeDisplay()
 {
     display = NULL;
 
-    if (outBuffer != 0) {
+    if (outBuffer != nullptr)
+    {
         outBuffer->unlock();
         outBuffer.clear();
+        outBuffer = nullptr;
+    }
+
+    if (cmpBuffer != NULL)
+    {
+        free(cmpBuffer);
+        cmpBuffer = NULL;
     }
 }
 

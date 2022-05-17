@@ -372,13 +372,12 @@ int main(int argc, char **argv)
         long usec = (vncscr->deferUpdateTime + standby) * 1000;
         rfbProcessEvents(vncscr, usec);
 
-        if (idle) { standby = 50; }
+        if (idle) { standby = 80; }
              else { standby = 1; }
 
         if (vncscr->clientHead == NULL)
         {
             idle = 1;
-            standby = 100;
             continue;
         }
 
