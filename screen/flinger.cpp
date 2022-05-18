@@ -39,6 +39,7 @@ sp<IBinder> display;
 sp<GraphicBuffer> outBuffer;
 std::optional<PhysicalDisplayId> displayId;
 android::ui::Dataspace dataspace;
+unsigned int *cmpBuffer;
 
 struct PixelFormatInformation {
     enum {
@@ -256,6 +257,12 @@ void initScreenFormat()
     screenformat.alphaShift   = pf.l_alpha;
     screenformat.alphaMax     = pf.h_alpha - pf.l_alpha;
     screenformat.rotation     = getScreenRotation();
+
+    cmpBuffer = (unsigned int*) malloc(screenformat.size);
+    if (!cmpBuffer)
+    {
+        L("Failed allocating comparison buffer\n");
+    }
 }
 
 int initFlinger(void)
@@ -309,23 +316,45 @@ android::ui::Rotation getScreenRotation()
     return displayState.orientation;
 }
 
-void readBuffer(unsigned int* buffer)
+bool readBuffer(unsigned int* buffer)
 {
     ScreenshotClient::capture(*displayId, &dataspace, &outBuffer);
 
     void* base = 0;
+    int size = screenformat.width * screenformat.height * screenformat.bitsPerPixel / CHAR_BIT;
+
     outBuffer->lock(GraphicBuffer::USAGE_SW_READ_OFTEN, &base);
-    memcpy(buffer, base, screenformat.width * screenformat.height * screenformat.bitsPerPixel / CHAR_BIT);
+    memcpy(buffer, base, size);
     outBuffer->unlock();
+
+    if (memcmp(cmpBuffer, buffer, size) == 0)
+    {
+        // no UI changes detected
+        return false;
+    }
+    else
+    {
+        // save UI changes for next iteration
+        memcpy(cmpBuffer, buffer, size);
+        return true;
+    }
 }
 
 void closeDisplay()
 {
     display = NULL;
 
-    if (outBuffer != 0) {
+    if (outBuffer != nullptr)
+    {
         outBuffer->unlock();
         outBuffer.clear();
+        outBuffer = nullptr;
+    }
+
+    if (cmpBuffer != NULL)
+    {
+        free(cmpBuffer);
+        cmpBuffer = NULL;
     }
 }
 
