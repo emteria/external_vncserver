@@ -52,7 +52,7 @@ typedef struct _screenFormat
 int initFlinger(void);
 int initDisplay(void);
 android::ui::Rotation getScreenRotation(void);
-void readBuffer(unsigned int* buffer);
+bool readBuffer(unsigned int* buffer);
 void closeDisplay(void);
 void closeFlinger(void);
 

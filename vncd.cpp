@@ -172,25 +172,25 @@ void initVncServer()
 
 void extractReverseHostPort(char *str)
 {
-	int len = strlen(str);
-	char *p;
+    int len = strlen(str);
+    char *p;
 
-	// copy in to host
-	rhost = (char *) malloc(len+1);
-	if (!rhost) {
-		L("Could not malloc string of size %d for reverse host\n", len);
-		closeVncServer(-1);
-		return;
-	}
+    // copy in to host
+    rhost = (char*) malloc(len+1);
+    if (!rhost) {
+        L("Could not malloc string of size %d for reverse host\n", len);
+        closeVncServer(-1);
+        return;
+    }
 
-	strncpy(rhost, str, len);
-	rhost[len] = '\0';
+    strncpy(rhost, str, len);
+    rhost[len] = '\0';
 
-	// extract port, if any
-	if ((p = strrchr(rhost, ':')) != NULL) {
-		rport = atoi(p+1);
-		*p = '\0';
-	}
+    // extract port, if any
+    if ((p = strrchr(rhost, ':')) != NULL) {
+        rport = atoi(p+1);
+        *p = '\0';
+    }
 }
 
 // inspired by rfbReverseConnection function
@@ -217,7 +217,7 @@ bool createReverseConnection()
         const char* header = "EMT01D";
         write(sock, header, strlen(header));
 
-        // TODO truncate and pad the token to 64 chars
+        // TODO truncate and pad the token to 64 utf-8 bytes
         write(sock, token, strlen(token));
     }
 
@@ -372,29 +372,44 @@ int main(int argc, char **argv)
         long usec = (vncscr->deferUpdateTime + standby) * 1000;
         rfbProcessEvents(vncscr, usec);
 
-        if (idle) { standby += 5; }
+        if (idle) { standby = 80; }
              else { standby = 1; }
 
         if (vncscr->clientHead == NULL)
         {
             idle = 1;
-            standby = 10;
             continue;
         }
 
         android::ui::Rotation rotation = getScreenRotation();
         if (screenformat.rotation != rotation) { rotateScreen(rotation); }
 
+        bool needUpdates = false;
         for (rfbClientPtr client_ptr = vncscr->clientHead; client_ptr; client_ptr = client_ptr->next)
         {
-            // update screen once if at least one client has requested
+            // we will update the whole screen if at least one client has requested any update
             if (!sraRgnEmpty(client_ptr->requestedRegion))
             {
-                readBuffer(vncbuf);
-                rfbMarkRectAsModified(vncscr, 0, 0, screenformat.width, screenformat.height);
+                needUpdates = true;
                 break;
             }
         }
+
+        if (!needUpdates)
+        {
+            standby = 20;
+            continue;
+        }
+
+        bool hasUpdates = readBuffer(vncbuf);
+        if (!hasUpdates)
+        {
+            standby = 10;
+            continue;
+        }
+
+        // update the whole screen regardless of what client asked for
+        rfbMarkRectAsModified(vncscr, 0, 0, screenformat.width, screenformat.height);
     }
 
     L("Terminating...\n");
