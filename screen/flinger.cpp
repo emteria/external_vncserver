@@ -283,21 +283,25 @@ int initDisplay(void)
 
     display = SurfaceComposerClient::getPhysicalDisplayToken(*displayId);
     if (display == NULL) {
-        L("Didn't get display with id: %lu\n", *displayId);
+        L("Didn't get display with id: %lu\n", displayId->value);
         return -1;
     }
 
-    status_t error = ScreenshotClient::capture(*displayId, &dataspace, &outBuffer);
-    if (outBuffer == nullptr) {
-        L("Didn't get buffer for display: %lu (error: %d)\n", *displayId, error);
-        return -1;
-    }
+    sp<SyncScreenCaptureListener> captureListener = new SyncScreenCaptureListener();
+    status_t error = ScreenshotClient::captureDisplay(displayId->value, captureListener);
 
     if (error != NO_ERROR) {
         L("Flinger initialization failed\n");
         return -1;
     }
 
+    ScreenCaptureResults captureResults = captureListener->waitForResults();
+    if (captureResults.result != NO_ERROR) {
+        L("Error while getting capture result for display: %lu (error: %d)", displayId->value, captureResults.result);
+        return 1;
+    }
+
+    outBuffer = captureResults.buffer;
     initScreenFormat();
     if (screenformat.width <= 0) {
         L("Received a bad screen size from flinger\n");
@@ -318,7 +322,21 @@ android::ui::Rotation getScreenRotation()
 
 bool readBuffer(unsigned int* buffer)
 {
-    ScreenshotClient::capture(*displayId, &dataspace, &outBuffer);
+    sp<SyncScreenCaptureListener> captureListener = new SyncScreenCaptureListener();
+    status_t error = ScreenshotClient::captureDisplay(displayId->value, captureListener);
+
+    if (error != NO_ERROR) {
+        L("Captureing display failed!\n");
+        return -1;
+    }
+
+    ScreenCaptureResults captureResults = captureListener->waitForResults();
+    if (captureResults.result != NO_ERROR) {
+        L("Error while getting capture result for display: %lu (error: %d)", displayId->value, captureResults.result);
+        return 1;
+    }
+
+    outBuffer = captureResults.buffer;
 
     void* base = 0;
     int size = screenformat.width * screenformat.height * screenformat.bitsPerPixel / CHAR_BIT;
