@@ -23,7 +23,9 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301  USA
 
 #include <stdint.h>
 
-#include <ui/DisplayConfig.h>
+#include <gui/SyncScreenCaptureListener.h>
+
+#include <ui/DisplayId.h>
 #include <ui/DisplayState.h>
 
 typedef struct _screenFormat
