@@ -322,7 +322,6 @@ android::ui::Rotation getScreenRotation()
 
 bool readBuffer(unsigned int* buffer)
 {
-    //ScreenshotClient::capture(*displayId, &dataspace, &outBuffer);
     sp<SyncScreenCaptureListener> captureListener = new SyncScreenCaptureListener();
     status_t error = ScreenshotClient::captureDisplay(displayId->value, captureListener);
 
