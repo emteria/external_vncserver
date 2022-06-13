@@ -32,13 +32,17 @@
 using namespace android;
 using android::status_t;
 
+static uint32_t DEFAULT_DISPLAY_ID = ISurfaceComposer::eDisplayIdMain;
 static const int COMPONENT_YUV = 0xFF;
 extern screenFormat screenformat;
 
+int32_t displayId = DEFAULT_DISPLAY_ID;
+size_t Bpp = 32;
+sp<IBinder> display = SurfaceComposerClient::getBuiltInDisplay(displayId);
+ScreenshotClient *screenshotClient = NULL;
+
 sp<IBinder> display;
 sp<GraphicBuffer> outBuffer;
-std::optional<PhysicalDisplayId> displayId;
-android::ui::Dataspace dataspace;
 unsigned int *cmpBuffer;
 
 struct PixelFormatInformation {
@@ -256,7 +260,6 @@ void initScreenFormat()
     screenformat.blueMax      = pf.h_blue - pf.l_blue;
     screenformat.alphaShift   = pf.l_alpha;
     screenformat.alphaMax     = pf.h_alpha - pf.l_alpha;
-    screenformat.rotation     = getScreenRotation();
 
     cmpBuffer = (unsigned int*) malloc(screenformat.size);
     if (!cmpBuffer)
@@ -307,13 +310,6 @@ int initDisplay(void)
     L("Flinger initialization successful\n");
     outBuffer->unlock();
     return 0;
-}
-
-android::ui::Rotation getScreenRotation()
-{
-    android::ui::DisplayState displayState;
-    SurfaceComposerClient::getDisplayState(display, &displayState);
-    return displayState.orientation;
 }
 
 bool readBuffer(unsigned int* buffer)

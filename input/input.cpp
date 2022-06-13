@@ -423,6 +423,7 @@ void ptrEvent(int buttonMask, int x, int y, rfbClientPtr cl)
 
 inline void rotateCoordinates(int* x, int* y)
 {
+        /*
 	int width = screenformat.width;
 	int height = screenformat.height;
 
@@ -449,6 +450,7 @@ inline void rotateCoordinates(int* x, int* y)
 		*x = width * old_y / height;
 		*y = height * (width - old_x) / width;
 	}
+        */
 
 //	L("Rotated coordinates: (%d, %d) -> (%d, %d) for screen (%d,%d,%s)\n", old_x, old_y, *x, *y, width, height, toCString(screenformat.rotation));
 }

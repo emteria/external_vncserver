@@ -83,25 +83,6 @@ void clientGone(rfbClientPtr cl)
     }
 }
 
-void rotateScreen(android::ui::Rotation rotation)
-{
-    L("Performing screen rotation from %s to %s\n", toCString(screenformat.rotation), toCString(rotation));
-    bool oldLandscape = screenformat.rotation == android::ui::ROTATION_0 || screenformat.rotation == android::ui::ROTATION_180;
-    bool newLandscape = rotation == android::ui::ROTATION_0 || rotation == android::ui::ROTATION_180;
-    if (oldLandscape != newLandscape)
-    {
-        // we need to restart the whole vncd to re-initialize display size
-        L("Cannot handle dimention flip when rotating screen, restarting vncd service...\n");
-        property_set("ctl.restart", "vncd");
-    }
-    else
-    {
-        // only change the rotation value in the settings
-        L("Applying screen rotation without dimention flip\n");
-        screenformat.rotation = rotation;
-    }
-}
-
 enum rfbNewClientAction clientHook(rfbClientPtr cl)
 {
     clients++;
@@ -350,7 +331,6 @@ int main(int argc, char **argv)
     }
 
     L("Initializing VNC server:\n");
-    L(" - rotation: %s\n", toCString(screenformat.rotation));
     L(" - width: %d\n", screenformat.width);
     L(" - height: %d\n", screenformat.height);
     L(" - bpp: %d\n", screenformat.bitsPerPixel);
@@ -380,9 +360,6 @@ int main(int argc, char **argv)
             idle = 1;
             continue;
         }
-
-        android::ui::Rotation rotation = getScreenRotation();
-        if (screenformat.rotation != rotation) { rotateScreen(rotation); }
 
         bool needUpdates = false;
         for (rfbClientPtr client_ptr = vncscr->clientHead; client_ptr; client_ptr = client_ptr->next)
