@@ -40,9 +40,6 @@ int32_t displayId = DEFAULT_DISPLAY_ID;
 size_t Bpp = 32;
 sp<IBinder> display = SurfaceComposerClient::getBuiltInDisplay(displayId);
 ScreenshotClient *screenshotClient = NULL;
-
-sp<IBinder> display;
-sp<GraphicBuffer> outBuffer;
 unsigned int *cmpBuffer;
 
 struct PixelFormatInformation {
@@ -136,14 +133,6 @@ static const Info* gGetPixelFormatTable(size_t* numEntries) {
 status_t getPixelFormatInformation(PixelFormat format, PixelFormatInformation* info)
 {
     L("Retrieving pixel information with format %d\n", format);
-
-    // test if we use fkms to adjust color space
-    char value[PROPERTY_VALUE_MAX];
-    property_get("persist.rpi.vc4.state", value, NULL);
-    if (value[0] == '1') {
-       L("Change format to %d because of fkms\n", format);
-       format = HAL_PIXEL_FORMAT_BGRA_8888;
-    }
 
     if (format <= 0)
         return BAD_VALUE;
@@ -241,12 +230,13 @@ status_t getPixelFormatInformation(PixelFormat format, PixelFormatInformation* i
 
 void initScreenFormat()
 {
+    PixelFormat f = screenshotClient->getFormat();
     PixelFormatInformation pf;
-    getPixelFormatInformation(outBuffer->getPixelFormat(), &pf);
+    getPixelFormatInformation(f, &pf);
 
     size_t bpp = pf.bitsPerPixel;
-    uint32_t width = outBuffer->getWidth();
-    uint32_t height = outBuffer->getHeight();
+    uint32_t width = screenshotClient->getWidth();
+    uint32_t height = screenshotClient->getHeight();
 
     screenformat.bitsPerPixel = bpp;
     screenformat.width        = width;
@@ -278,51 +268,35 @@ int initFlinger(void)
 
 int initDisplay(void)
 {
-    displayId = SurfaceComposerClient::getInternalDisplayId();
-    if (!displayId) {
-        L("Failed to get token for internal display\n");
-        return -1;
-    }
-
-    display = SurfaceComposerClient::getPhysicalDisplayToken(*displayId);
-    if (display == NULL) {
-        L("Didn't get display with id: %lu\n", *displayId);
-        return -1;
-    }
-
-    status_t error = ScreenshotClient::capture(*displayId, &dataspace, &outBuffer);
-    if (outBuffer == nullptr) {
-        L("Didn't get buffer for display: %lu (error: %d)\n", *displayId, error);
-        return -1;
-    }
-
-    if (error != NO_ERROR) {
-        L("Flinger initialization failed\n");
-        return -1;
-    }
-
     initScreenFormat();
-    if (screenformat.width <= 0) {
+    if (screenformat.width <= 0)
+    {
         L("Received a bad screen size from flinger\n");
         return -1;
     }
 
+    screenshotClient = new ScreenshotClient();
+    L("Detected screen format: %d\n", screenshotClient->getFormat());
+
+    int errcode = screenshotClient->update(display, Rect(), false);
+    if (display == NULL || errcode != NO_ERROR)
+    {
+        L("Flinger initialization failed\n");
+        return -1;
+    }
+
+
     L("Flinger initialization successful\n");
-    outBuffer->unlock();
     return 0;
 }
 
 bool readBuffer(unsigned int* buffer)
 {
-    ScreenshotClient::capture(*displayId, &dataspace, &outBuffer);
+    screenshotClient->update(display, Rect(), false);
+    void const* base = screenshotClient->getPixels();
+    int const size = screenformat.width * screenformat.height * screenformat.bitsPerPixel / CHAR_BIT;
 
-    void* base = 0;
-    int size = screenformat.width * screenformat.height * screenformat.bitsPerPixel / CHAR_BIT;
-
-    outBuffer->lock(GraphicBuffer::USAGE_SW_READ_OFTEN, &base);
     memcpy(buffer, base, size);
-    outBuffer->unlock();
-
     if (memcmp(cmpBuffer, buffer, size) == 0)
     {
         // no UI changes detected
@@ -340,11 +314,10 @@ void closeDisplay()
 {
     display = NULL;
 
-    if (outBuffer != nullptr)
+    if (screenshotClient != NULL)
     {
-        outBuffer->unlock();
-        outBuffer.clear();
-        outBuffer = nullptr;
+        delete screenshotClient;
+        screenshotClient = NULL;
     }
 
     if (cmpBuffer != NULL)
