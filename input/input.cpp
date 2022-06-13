@@ -1,6 +1,7 @@
 /*
 droid VNC server  - a vnc server for android
 Copyright (C) 2011 Jose Pereira <onaips@gmail.com>
+Copyright (C) 2017 emteria.OS Project
 
 This library is free software; you can redistribute it and/or
 modify it under the terms of the GNU Lesser General Public
@@ -18,10 +19,11 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301  USA
 */
 
 #include "common.h"
-#include "log.h"
+#include "flinger.h"
 #include "suinput.h"
-
 #include "input.h"
+
+extern screenFormat screenformat;
 
 int inputfd = -1;
 // keyboard code modified from remote input by http://www.math.bme.hu/~morap/RemoteInput/
@@ -41,9 +43,9 @@ int spec3sh[] = {0,0,0,1,1,0};
 int spec4[] = {26,43,27,215,14};
 int spec4sh[] = {1,1,1,1,0};
 
-void initInput(int width, int height)
+void initInput()
 {
-	L("Initializing keyboard and touch...\n");
+	L("Initializing keyboard and touch for w=%d and h=%d...\n", screenformat.width, screenformat.height);
 	struct input_id id =
 	{
 		BUS_VIRTUAL, /* Bus type: 0x06*/
@@ -52,7 +54,7 @@ void initInput(int width, int height)
 		1  /* Version id. */
 	};
 
-	if ((inputfd = suinput_open("VNC", &id, width, height)) == -1)
+	if ((inputfd = suinput_open("VNC", &id, screenformat.width, screenformat.height)) == -1)
 	{
 		L("Cannot create virtual input devices\n");
 	}
@@ -327,30 +329,23 @@ void ptrEvent(int buttonMask, int x, int y, rfbClientPtr cl)
 	static int scrollUp = 0;
 	static int scrollDown = 0;
 
-	//L("Process event (%d, %d) with mask %u\n", x, y, buttonMask);
 	if (inputfd == -1)
 		return;
 
-	//transformTouchCoordinates(&x,&y,cl->screen->width,cl->screen->height);
+//	L("Process event (%d, %d) with mask %u\n", x, y, buttonMask);
+	rotateCoordinates(&x, &y);
+//	scaleCoordinates(&x, &y);
 	setIdle(0);
 
 	if ((buttonMask & 1) && leftClicked) // left btn pressed and moving
 	{
-		static int i=0;
-		i = i+1;
-
-		// some tweak to not report every move event
-		if (i % 10 == 1)
-		{
-			suinput_write(inputfd, EV_ABS, ABS_X, x);
-			suinput_write(inputfd, EV_ABS, ABS_Y, y);
-			suinput_write(inputfd, EV_SYN, SYN_REPORT, 0);
-		}
+		suinput_write(inputfd, EV_ABS, ABS_X, x);
+		suinput_write(inputfd, EV_ABS, ABS_Y, y);
+		suinput_write(inputfd, EV_SYN, SYN_REPORT, 0);
 	}
 	else if (buttonMask & 1) // left btn pressed
 	{
 		leftClicked = 1;
-
 		suinput_write(inputfd, EV_ABS, ABS_X, x);
 		suinput_write(inputfd, EV_ABS, ABS_Y, y);
 		suinput_write(inputfd, EV_KEY, BTN_TOUCH, 1);
@@ -426,34 +421,50 @@ void ptrEvent(int buttonMask, int x, int y, rfbClientPtr cl)
 	}
 }
 
-inline void transformTouchCoordinates(int *x, int *y, int width, int height)
+inline void rotateCoordinates(int* x, int* y)
 {
+	int width = screenformat.width;
+	int height = screenformat.height;
+
 	int old_x = *x;
 	int old_y = *y;
-	int rotation = getCurrentRotation();
 
-	if (rotation == 0)
+	if (screenformat.rotation == android::ui::ROTATION_0)
 	{
-		*x = old_x / width;
-		*y = old_y / height;
+		*x = old_x;
+		*y = old_y;
 	}
-	else if (rotation == 90)
+	else if (screenformat.rotation == android::ui::ROTATION_90)
 	{
-		*x = old_y / height;
-		*y = (width - old_x) / width;
+		*x = width * (height - old_y) / height;
+		*y = height * old_x / width;
 	}
-	else if (rotation == 180)
+	else if (screenformat.rotation == android::ui::ROTATION_180)
 	{
-		*x = (width - old_x) / width;
-		*y = (height - old_y) / height;
+		*x = width - old_x;
+		*y = height - old_y;
 	}
-	else if (rotation == 270)
+	else if (screenformat.rotation == android::ui::ROTATION_270)
 	{
-		*y = old_x / width;
-		*x = (height - old_y) * height;
+		*x = width * old_y / height;
+		*y = height * (width - old_x) / width;
 	}
 
-	L("Transformed click coordinates: (%d, %d) -> (%d, %d)\n", old_x, old_y, *x, *y);
+//	L("Rotated coordinates: (%d, %d) -> (%d, %d) for screen (%d,%d,%s)\n", old_x, old_y, *x, *y, width, height, toCString(screenformat.rotation));
+}
+
+inline void scaleCoordinates(int* x, int* y)
+{
+	int width = screenformat.width;
+	int height = screenformat.height;
+
+	int old_x = *x;
+	int old_y = *y;
+
+	*x = old_x / width;
+	*y = old_y / height;
+
+//	L("Scaled coordinates: (%d, %d) -> (%d, %d)\n", old_x, old_y, *x, *y);
 }
 
 void cleanupInput()

@@ -1,6 +1,7 @@
 /*
 suinput - Simple C-API to the Linux uinput-system.
 Copyright (C) 2009 Tuomas Räsänen <tuos@codegrove.org>
+Copyright (C) 2017 emteria.OS Project
 
 This library is free software; you can redistribute it and/or
 modify it under the terms of the GNU Lesser General Public
@@ -25,7 +26,6 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301  USA
 #include <stdio.h>
 
 #include "common.h"
-#include "log.h"
 #include "suinput.h"
 
 const char* UINPUT_FILEPATHS[] = {
@@ -174,6 +174,7 @@ int suinput_write(int uinput_fd, uint16_t type, uint16_t code, int32_t value)
 {
     struct input_event event;
     memset(&event, 0, sizeof(event));
+
     gettimeofday(&event.time, 0); /* This should not be able to fail ever.. */
     event.type = type;
     event.code = code;

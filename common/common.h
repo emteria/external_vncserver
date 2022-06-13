@@ -23,6 +23,7 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301  USA
 #include <assert.h>
 #include <errno.h>
 #include <cstring>
+#include <error.h>
 #include <dirent.h>
 #include <fcntl.h>
 #include <stdio.h>
@@ -42,25 +43,9 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301  USA
 #include <linux/fb.h>
 #include <linux/input.h>
 
-struct fbinfo {
-    unsigned int version;
-    unsigned int bpp;
-    unsigned int size;
-    unsigned int width;
-    unsigned int height;
-    unsigned int red_offset;
-    unsigned int red_length;
-    unsigned int blue_offset;
-    unsigned int blue_length;
-    unsigned int green_offset;
-    unsigned int green_length;
-    unsigned int alpha_offset;
-    unsigned int alpha_length;
-} __attribute__((packed));
+#include <android/log.h>
+#define L(...) do { __android_log_print(ANDROID_LOG_DEBUG, "vncd", __VA_ARGS__); printf(__VA_ARGS__); } while (0)
 
-void rotate(int);
-int getCurrentRotation();
-int isIdle();
 void setIdle(int i);
 
 #endif

@@ -24,9 +24,10 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301  USA
 
 #define BUS_VIRTUAL 0x06
 
-void initInput(int width, int height);
+void initInput();
 int keysym2scancode(rfbBool down, rfbKeySym c, int *sh, int *alt);
-void transformTouchCoordinates(int *x, int *y,int,int);
+void rotateCoordinates(int* x, int* y);
+void scaleCoordinates(int* x, int* y);
 void ptrEvent(int buttonMask, int x, int y, rfbClientPtr cl);
 void keyEvent(rfbBool down, rfbKeySym key, rfbClientPtr cl);
 void cleanupInput();
