@@ -99,6 +99,25 @@ void clientGone(rfbClientPtr cl)
     }
 }
 
+void rotateScreen(android::ui::Rotation rotation)
+{
+    L("Performing screen rotation from %s to %s\n", toCString(screenformat.rotation), toCString(rotation));
+    bool oldLandscape = screenformat.rotation == android::ui::ROTATION_0 || screenformat.rotation == android::ui::ROTATION_180;
+    bool newLandscape = rotation == android::ui::ROTATION_0 || rotation == android::ui::ROTATION_180;
+    if (oldLandscape != newLandscape)
+    {
+        // we need to restart the whole vncd to re-initialize display size
+        L("Cannot handle dimention flip when rotating screen, restarting vncd service...\n");
+        property_set("ctl.restart", "vncd");
+    }
+    else
+    {
+        // only change the rotation value in the settings
+        L("Applying screen rotation without dimention flip\n");
+        screenformat.rotation = rotation;
+    }
+}
+
 enum rfbNewClientAction clientHook(rfbClientPtr cl)
 {
     clients++;
@@ -107,8 +126,8 @@ enum rfbNewClientAction clientHook(rfbClientPtr cl)
 
     if (scaling != 100)
     {
-        int w = vncscr->width * scaling / 100;
-        int h = vncscr->height * scaling / 100;
+        int w = screenformat.width * scaling / 100;
+        int h = screenformat.height * scaling / 100;
 
         L("Scaling to w=%d, h=%d\n", w, h);
         rfbScalingSetup(cl, w, h);
@@ -171,85 +190,33 @@ void initVncServer(int argc, char** argv)
 
 	vncscr->alwaysShared = TRUE;
 	vncscr->handleEventsEagerly = TRUE;
-	vncscr->deferUpdateTime = 5;
+	vncscr->deferUpdateTime = 10;
 
 	rfbInitServer(vncscr);
-
-	// assign update_screen depending on bpp
-	if (vncscr->serverFormat.bitsPerPixel == 32)
-	{
-		update_screen = &CONCAT2E(update_screen_,32);
-	}
-	else if (vncscr->serverFormat.bitsPerPixel == 16)
-	{
-		update_screen = &CONCAT2E(update_screen_,16);
-	}
-	else if (vncscr->serverFormat.bitsPerPixel == 8)
-	{
-		update_screen = &CONCAT2E(update_screen_, 8);
-	}
-	else
-	{
-		L("Unsupported pixel depth: %d\n", vncscr->serverFormat.bitsPerPixel);
-		closeVncServer(-1);
-	}
-
-	/* Mark as dirty since we haven't sent any updates at all yet. */
-	rfbMarkRectAsModified(vncscr, 0, 0, vncscr->width, vncscr->height);
-}
-
-void rotate(int value)
-{
-//	L("rotate()\n");
-
-	if (value == -1 ||
-		((value == 90 || value == 270) && (rotation == 0 || rotation == 180)) ||
-		((value == 0 || value == 180) && (rotation == 90 || rotation == 270))) {
-			int h = vncscr->height;
-			int w = vncscr->width;
-
-			vncscr->width = h;
-			vncscr->height = w;
-			vncscr->paddedWidthInBytes = h * screenformat.bitsPerPixel / CHAR_BIT;
-
-			rfbClientPtr cl;
-			rfbClientIteratorPtr iterator = rfbGetClientIterator(vncscr);
-			while ((cl = rfbClientIteratorNext(iterator)) != NULL) {
-				cl->newFBSizePending = 1;
-			}
-	}
-
-	if (value == -1) {
-		rotation += 90;
-	} else {
-		rotation = value;
-	}
-	rotation %= 360;
-
-	rfbMarkRectAsModified(vncscr, 0, 0, vncscr->width, vncscr->height);
+	rfbMarkRectAsModified(vncscr, 0, 0, screenformat.width, screenformat.height);
 }
 
 void extractReverseHostPort(char *str)
 {
-	int len = strlen(str);
-	char *p;
+    int len = strlen(str);
+    char *p;
 
-	// copy in to host
-	rhost = (char *) malloc(len+1);
-	if (!rhost) {
-		L("Could not malloc string of size %d for reverse host\n", len);
-		closeVncServer(-1);
-		return;
-	}
+    // copy in to host
+    rhost = (char*) malloc(len+1);
+    if (!rhost) {
+        L("Could not malloc string of size %d for reverse host\n", len);
+        closeVncServer(-1);
+        return;
+    }
 
-	strncpy(rhost, str, len);
-	rhost[len] = '\0';
+    strncpy(rhost, str, len);
+    rhost[len] = '\0';
 
-	// extract port, if any
-	if ((p = strrchr(rhost, ':')) != NULL) {
-		rport = atoi(p+1);
-		*p = '\0';
-	}
+    // extract port, if any
+    if ((p = strrchr(rhost, ':')) != NULL) {
+        rport = atoi(p+1);
+        *p = '\0';
+    }
 }
 
 // inspired by rfbReverseConnection function
@@ -307,35 +274,29 @@ void parseArguments(int argc, char **argv)
     if (argc > 1)
     {
         int i = 1;
-        int r;
         while (i < argc)
         {
+            int r;
             if (*argv[i] == '-')
             {
                 switch(*(argv[i] + 1))
                 {
-					case 'h':
-						printUsage(argv);
-						exit(0);
-						break;
-					case 'p':
-						i++;
-						passwd = argv[i];
-						break;
-					case 't':
-						i++;
-						token = argv[i];
-						break;
-					case 'P':
-						i++;
-						port = atoi(argv[i]);
-						break;
-					case 'r':
-						i++;
-						r = atoi(argv[i]);
-						if (r==0 || r==90 || r==180 || r==270) { rotation = r; }
-						L("Rotating to %d degrees\n", rotation);
-						break;
+		case 'h':
+			printUsage();
+			exit(0);
+			break;
+		case 'p':
+			i++;
+			passwd = argv[i];
+			break;
+		case 't':
+			i++;
+			token = argv[i];
+			break;
+		case 'P':
+			i++;
+			port = atoi(argv[i]);
+			break;
                 case 's':
                     i++;
                     r = atoi(argv[i]);
