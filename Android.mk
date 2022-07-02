@@ -7,12 +7,14 @@ include $(CLEAR_VARS)
 LOCAL_MODULE := vncd
 LOCAL_INIT_RC := vncd.rc
 
+LOCAL_AIDL_INCLUDES := com/rotationhelper/IRotationHelper.aidl
+
 LOCAL_SRC_FILES := \
     input/suinput.cpp \
     input/input.cpp \
     input/clipboard.cpp \
-    screen/flinger.cpp \
-    vncd.cpp
+    vncd.cpp \
+    com/rotationhelper/IRotationHelper.aidl \
 
 LOCAL_C_INCLUDES := \
     $(LOCAL_PATH) \
@@ -20,7 +22,8 @@ LOCAL_C_INCLUDES := \
     $(LOCAL_PATH)/input \
     $(LOCAL_PATH)/screen \
     external/zlib \
-    external/libvncserver
+    external/libvncserver \
+    $(LOCAL_PATH)/com/rotationhelper 
 
 LOCAL_CFLAGS += \
     -Wall \
