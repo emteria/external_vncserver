@@ -268,16 +268,7 @@ int initFlinger(void)
 
 int initDisplay(void)
 {
-    initScreenFormat();
-    if (screenformat.width <= 0)
-    {
-        L("Received a bad screen size from flinger\n");
-        return -1;
-    }
-
     screenshotClient = new ScreenshotClient();
-    L("Detected screen format: %d\n", screenshotClient->getFormat());
-
     int errcode = screenshotClient->update(display, Rect(), false);
     if (display == NULL || errcode != NO_ERROR)
     {
@@ -285,6 +276,12 @@ int initDisplay(void)
         return -1;
     }
 
+    initScreenFormat();
+    if (screenformat.width <= 0)
+    {
+        L("Received a bad screen size from flinger\n");
+        return -1;
+    }
 
     L("Flinger initialization successful\n");
     return 0;
