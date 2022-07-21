@@ -252,6 +252,14 @@ void initScreenFormat()
     screenformat.alphaMax     = pf.h_alpha - pf.l_alpha;
     screenformat.rotation     = getScreenRotation();
 
+    // switch width and height if the screen is rotated
+    // 1 = 90 degrees, 3 = 270 degrees
+    if (screenformat.rotation == 1 || screenformat.rotation == 3)
+    {
+        screenformat.width  = height;
+        screenformat.height = width;
+    }
+
     cmpBuffer = (unsigned int*) malloc(screenformat.size);
     if (!cmpBuffer)
     {
