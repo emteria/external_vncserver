@@ -83,6 +83,11 @@ void clientGone(rfbClientPtr cl)
     }
 }
 
+void rotateScreen(int rotation)
+{
+    L("Performing screen rotation from %d to %d\n", screenformat.rotation, rotation);
+}
+
 enum rfbNewClientAction clientHook(rfbClientPtr cl)
 {
     clients++;
@@ -331,6 +336,7 @@ int main(int argc, char **argv)
     }
 
     L("Initializing VNC server:\n");
+    L(" - rotation: %d\n", screenformat.rotation);
     L(" - width: %d\n", screenformat.width);
     L(" - height: %d\n", screenformat.height);
     L(" - bpp: %d\n", screenformat.bitsPerPixel);
