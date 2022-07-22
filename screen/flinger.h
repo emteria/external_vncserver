@@ -23,6 +23,9 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301  USA
 
 #include <stdint.h>
 
+#include <ui/DisplayInfo.h>
+#include <ui/PixelFormat.h>
+
 typedef struct _screenFormat
 {
   uint16_t width;
@@ -43,10 +46,12 @@ typedef struct _screenFormat
   uint32_t size;
   uint32_t pad;
 
+  int rotation;
 } screenFormat;
 
 int initFlinger(void);
 int initDisplay(void);
+int getScreenRotation(void);
 bool readBuffer(unsigned int* buffer);
 void closeDisplay(void);
 void closeFlinger(void);

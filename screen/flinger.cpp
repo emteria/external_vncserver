@@ -250,6 +250,15 @@ void initScreenFormat()
     screenformat.blueMax      = pf.h_blue - pf.l_blue;
     screenformat.alphaShift   = pf.l_alpha;
     screenformat.alphaMax     = pf.h_alpha - pf.l_alpha;
+    screenformat.rotation     = getScreenRotation();
+
+    // switch width and height if the screen is rotated
+    // 1 = 90 degrees, 3 = 270 degrees
+    if (screenformat.rotation == 1 || screenformat.rotation == 3)
+    {
+        screenformat.width  = height;
+        screenformat.height = width;
+    }
 
     cmpBuffer = (unsigned int*) malloc(screenformat.size);
     if (!cmpBuffer)
@@ -287,9 +296,43 @@ int initDisplay(void)
     return 0;
 }
 
+int getScreenRotation()
+{
+    Vector<android::DisplayInfo> configs;
+    status_t error = SurfaceComposerClient::getDisplayConfigs(display, &configs);
+    if (error != android::NO_ERROR)
+    {
+        L("Failed getting display info (%d)\n", error);
+        return -1;
+    }
+
+    int activeConfig = android::SurfaceComposerClient::getActiveConfig(display);
+    if (static_cast<size_t>(activeConfig) >= configs.size())
+    {
+        L("Active display config %d is not inside configs (size %zu)\n", activeConfig, configs.size());
+        return -1;
+    }
+
+    DisplayInfo displayInfo = configs[activeConfig];
+    return displayInfo.orientation;
+}
+
 bool readBuffer(unsigned int* buffer)
 {
-    screenshotClient->update(display, Rect(), false);
+    // find required rotation to always stay at 0 degrees
+    // map orientations from DisplayInfo to ISurfaceComposer rotation
+    static const uint32_t ORIENTATION_MAP[] =
+    {
+        ISurfaceComposer::eRotateNone, // 0 == DISPLAY_ORIENTATION_0
+        ISurfaceComposer::eRotate270, // 1 == DISPLAY_ORIENTATION_90
+        ISurfaceComposer::eRotate180, // 2 == DISPLAY_ORIENTATION_180
+        ISurfaceComposer::eRotate90, // 3 == DISPLAY_ORIENTATION_270
+    };
+
+    int currentRotation = screenformat.rotation;
+    uint32_t captureRotation = ORIENTATION_MAP[currentRotation];
+
+    screenshotClient->update(display, Rect(), 0, 0, 0, -1U, false, captureRotation);
     void const* base = screenshotClient->getPixels();
     int const size = screenformat.width * screenformat.height * screenformat.bitsPerPixel / CHAR_BIT;
 
