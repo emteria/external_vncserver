@@ -423,34 +423,32 @@ void ptrEvent(int buttonMask, int x, int y, rfbClientPtr cl)
 
 inline void rotateCoordinates(int* x, int* y)
 {
-        /*
 	int width = screenformat.width;
 	int height = screenformat.height;
 
 	int old_x = *x;
 	int old_y = *y;
 
-	if (screenformat.rotation == android::ui::ROTATION_0)
+	if (screenformat.rotation == 0)
 	{
 		*x = old_x;
 		*y = old_y;
 	}
-	else if (screenformat.rotation == android::ui::ROTATION_90)
+	else if (screenformat.rotation == 1)
 	{
 		*x = width * (height - old_y) / height;
 		*y = height * old_x / width;
 	}
-	else if (screenformat.rotation == android::ui::ROTATION_180)
+	else if (screenformat.rotation == 2)
 	{
 		*x = width - old_x;
 		*y = height - old_y;
 	}
-	else if (screenformat.rotation == android::ui::ROTATION_270)
+	else if (screenformat.rotation == 3)
 	{
 		*x = width * old_y / height;
 		*y = height * (width - old_x) / width;
 	}
-        */
 
 //	L("Rotated coordinates: (%d, %d) -> (%d, %d) for screen (%d,%d,%s)\n", old_x, old_y, *x, *y, width, height, toCString(screenformat.rotation));
 }
