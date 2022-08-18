@@ -288,7 +288,7 @@ int initDisplay(void)
     }
 
     sp<SyncScreenCaptureListener> captureListener = new SyncScreenCaptureListener();
-    status_t error = ScreenshotClient::captureDisplay(displayId->value, captureListener);
+    status_t error = ScreenshotClient::captureDisplay(*displayId, captureListener);
 
     if (error != NO_ERROR) {
         L("Flinger initialization failed\n");
@@ -323,10 +323,10 @@ android::ui::Rotation getScreenRotation()
 bool readBuffer(unsigned int* buffer)
 {
     sp<SyncScreenCaptureListener> captureListener = new SyncScreenCaptureListener();
-    status_t error = ScreenshotClient::captureDisplay(displayId->value, captureListener);
+    status_t error = ScreenshotClient::captureDisplay(*displayId, captureListener);
 
     if (error != NO_ERROR) {
-        L("Captureing display failed!\n");
+        L("Capturing display failed!\n");
         return -1;
     }
 
