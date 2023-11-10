@@ -6,6 +6,7 @@ include $(CLEAR_VARS)
 
 LOCAL_MODULE := vncd
 LOCAL_INIT_RC := vncd.rc
+LOCAL_VENDOR_MODULE := true
 
 LOCAL_SRC_FILES := \
     input/suinput.cpp \

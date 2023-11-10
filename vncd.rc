@@ -4,13 +4,13 @@ on post-fs-data
 on property:sys.boot_completed=1 && property:persist.sys.vncd.enabled=1
     start vncd
 
-service vncd /system/bin/vncd
+service vncd /vendor/bin/vncd
     user root
     group root
     oneshot
     disabled
 
-service vncr /system/bin/vncd -P 5910 -R ${vncr.host} -t ${vncr.token}
+service vncr /vendor/bin/vncd -P 5910 -R ${vncr.host} -t ${vncr.token}
     user root
     group root
     oneshot
