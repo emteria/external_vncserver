@@ -275,7 +275,13 @@ int initFlinger(void)
 
 int initDisplay(void)
 {
-    displayId = SurfaceComposerClient::getInternalDisplayId();
+    const std::vector<PhysicalDisplayId> ids = SurfaceComposerClient::getPhysicalDisplayIds();
+    if (ids.empty()) {
+        L("Failed to get physical display IDs\n");
+        return -1;
+    }
+
+    displayId = ids.front();
     if (!displayId) {
         L("Failed to get token for internal display\n");
         return -1;
@@ -289,15 +295,14 @@ int initDisplay(void)
 
     sp<SyncScreenCaptureListener> captureListener = new SyncScreenCaptureListener();
     status_t error = ScreenshotClient::captureDisplay(*displayId, captureListener);
-
     if (error != NO_ERROR) {
         L("Flinger initialization failed\n");
         return -1;
     }
 
     ScreenCaptureResults captureResults = captureListener->waitForResults();
-    if (captureResults.result != NO_ERROR) {
-        L("Error while getting capture result for display: %lu (error: %d)", displayId->value, captureResults.result);
+    if (!captureResults.fenceResult.ok()) {
+        L("Error while getting capture result for display: %lu", displayId->value);
         return 1;
     }
 
@@ -331,16 +336,15 @@ bool readBuffer(unsigned int* buffer)
     }
 
     ScreenCaptureResults captureResults = captureListener->waitForResults();
-    if (captureResults.result != NO_ERROR) {
-        L("Error while getting capture result for display: %lu (error: %d)", displayId->value, captureResults.result);
+    if (!captureResults.fenceResult.ok()) {
+        L("Error while getting capture result for display: %lu", displayId->value);
         return 1;
     }
-
-    outBuffer = captureResults.buffer;
 
     void* base = 0;
     int size = screenformat.width * screenformat.height * screenformat.bitsPerPixel / CHAR_BIT;
 
+    outBuffer = captureResults.buffer;
     outBuffer->lock(GraphicBuffer::USAGE_SW_READ_OFTEN, &base);
     memcpy(buffer, base, size);
     outBuffer->unlock();
